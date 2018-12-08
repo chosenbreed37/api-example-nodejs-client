@@ -14,12 +14,21 @@
  * limitations under the License.
  */
 
-// Start Client configuration
-const clientId = 'CLIENT_ID_HERE';
-const clientSecret = 'CLIENT_SECRET_HERE';
-const serverToken = 'SERVER_TOKEN_HERE';
+// Support for https
+const fs = require('fs');
+const http = require('http');
+const https = require('https');
 
-const apiBaseUrl = 'https://api.service.hmrc.gov.uk/';
+// Load environment variables
+require('dotenv').load();
+const env = process.env;
+
+// Start Client configuration
+const clientId = env.CLIENT_ID;
+const clientSecret = env.CLIENT_SECRET;
+const serverToken = env.SERVER_TOKEN;
+
+const apiBaseUrl = 'https://test-api.service.hmrc.gov.uk/';
 const serviceName = 'hello'
 
 const serviceVersion = '1.0'
@@ -27,8 +36,10 @@ const serviceVersion = '1.0'
 const unRestrictedEndpoint = '/world';
 const appRestrictedEndpoint = '/application';
 const userRestrictedEndpoint = '/user';
+const vrn = '666334575';
+const retrieveVatObligationsEndpoint = 'organisations/vat/' + vrn + '/obligations';
 
-const oauthScope = 'hello';
+const oauthScope = 'hello read:vat';
 // End Client configuration
 
 const simpleOauthModule = require('simple-oauth2');
@@ -52,7 +63,7 @@ const log = new (winston.Logger)({
   ]
 });
 
-const redirectUri = 'http://localhost:8080/oauth20/callback';
+const redirectUri = env.REDIRECT_URI;
 
 const cookieSession = require('cookie-session');
 
@@ -91,7 +102,8 @@ app.get('/', (req, res) => {
     service: `${serviceName} (v${serviceVersion})`,
     unRestrictedEndpoint: unRestrictedEndpoint,
     appRestrictedEndpoint: appRestrictedEndpoint,
-    userRestrictedEndpoint: userRestrictedEndpoint
+    userRestrictedEndpoint: userRestrictedEndpoint,
+    retrieveVatObligationsEndpoint: retrieveVatObligationsEndpoint
   });
 });
 
@@ -154,6 +166,52 @@ app.get('/oauth20/callback', (req, res) => {
   });
 });
 
+// Retrieve vat obligations
+app.get('/retrieveVatObligations', (req, res) => {
+
+  if(req.session.oauth2Token){
+    var accessToken = oauth2.accessToken.create(req.session.oauth2Token);
+
+    if(accessToken.expired()){
+        log.info('Token expired: ', accessToken.token);
+        accessToken.refresh()
+          .then((result) => {
+            log.info('Refreshed token: ', result.token);
+            req.session.oauth2Token = result.token;
+            callApi(userRestrictedEndpoint, res, result.token.access_token);
+          })
+          .catch((error) => {
+            log.error('Error refreshing token: ', error);
+            res.send(error);
+           });
+    } else {
+      log.info('Using token from session: ', accessToken.token);
+      // callApi(userRestrictedEndpoint, res, accessToken.token.access_token);
+    const bearerToken = accessToken.token.access_token; 
+    const acceptHeader = `application/vnd.hmrc.${serviceVersion}+json`;
+    const url = apiBaseUrl + retrieveVatObligationsEndpoint + '?from=2018-07-01&to=2018-09-30';
+    log.info(`Calling ${url} with Accept: ${acceptHeader}`);
+    const req = request
+      .get(url)
+      .accept(acceptHeader)
+      .set('Content-Type', 'application/json');
+  
+    if(bearerToken) {
+      log.info('Using bearer token:', bearerToken);
+      req.set('Authorization', `Bearer ${bearerToken}`);
+    }
+  
+    req.end((err, apiResponse) => handleResponse(res, err, apiResponse));
+    }
+  } else {
+    log.info('Need to request token')
+    req.session.caller = '/retrieveVatObligations';
+    res.redirect(authorizationUri);
+  }
+});
+
+// SSL
+app.use('/.well-known', express.static('.well-known'));
 
 // Helper functions
 
@@ -186,6 +244,20 @@ function str(token){
   return `[A:${token.access_token} R:${token.refresh_token} X:${token.expires_at}]`;
 }
 
-app.listen(8080,() => {
-  log.info('Started at http://localhost:8080');
+const privateKey = fs.readFileSync('.ssl/private.key', 'utf8');
+const certificate = fs.readFileSync('.ssl/certificate.crt', 'utf8');
+const ca = fs.readFileSync('.ssl/ca_bundle.crt', 'utf8');
+
+const credentials = {
+	/*key: privateKey,
+	cert: certificate,
+	ca: caA*/ 
+};
+
+const httpServer = http.createServer(app);
+const httpsServer = https.createServer(credentials, app);
+
+httpsServer.listen(443, () => {
+	console.log('HTTPS Server running on port 443');
 });
+
