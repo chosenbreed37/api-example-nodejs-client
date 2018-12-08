@@ -244,9 +244,9 @@ function str(token){
   return `[A:${token.access_token} R:${token.refresh_token} X:${token.expires_at}]`;
 }
 
-const privateKey = fs.readFileSync('.ssl/private.key', 'utf8');
-const certificate = fs.readFileSync('.ssl/certificate.crt', 'utf8');
-const ca = fs.readFileSync('.ssl/ca_bundle.crt', 'utf8');
+// const privateKey = fs.readFileSync('.ssl/private.key', 'utf8');
+// const certificate = fs.readFileSync('.ssl/certificate.crt', 'utf8');
+// const ca = fs.readFileSync('.ssl/ca_bundle.crt', 'utf8');
 
 const credentials = {
 	/*key: privateKey,
